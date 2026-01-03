@@ -5,22 +5,22 @@ from datetime import datetime
 import io
 import plotly.express as px
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- 1. CONFIGURAÇÃO DA PÁGINA (OBRIGATÓRIO SER A PRIMEIRA LINHA) ---
 st.set_page_config(
-    page_title="7 Aromas ERP v13",
-    page_icon="🕯️",
+    page_title="7 Aromas - SISTEMA V14",
+    page_icon="🔥",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CSS PRO ---
+# --- 2. CSS PARA IMPRESSÃO E VISUAL ---
 st.markdown("""
 <style>
-    body {font-family: 'Segoe UI', sans-serif; background-color: #f4f6f9;}
+    body {font-family: 'Segoe UI', sans-serif;}
     
     /* ESCONDER NA IMPRESSÃO */
     @media print {
-        [data-testid="stSidebar"], .stAppHeader, .stFileUploader, .no-print, header, footer, .stTabs {
+        [data-testid="stSidebar"], .stAppHeader, .stFileUploader, .no-print, .stTabs {
             display: none !important;
         }
         .block-container {padding: 0 !important; margin: 0 !important;}
@@ -30,50 +30,46 @@ st.markdown("""
         }
     }
 
-    /* CARTÕES */
     .card-container {
         margin-bottom: 20px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-radius: 10px;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
         background: white;
-        overflow: hidden;
-        border: 1px solid #e1e4e8;
     }
     .card-header {
         color: white !important; padding: 12px; text-align: center; 
-        font-weight: 700; font-size: 16px; text-transform: uppercase;
-        letter-spacing: 0.5px;
+        font-weight: 800; font-size: 16px; text-transform: uppercase;
     }
-    .card-body { padding: 0; }
+    .card-body { padding: 0px; }
     
-    /* TABELA */
     .styled-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .styled-table td { padding: 10px 15px; border-bottom: 1px solid #f0f0f0; color: #444; }
+    .styled-table td { padding: 8px 15px; border-bottom: 1px solid #eee; color: #333; }
     .styled-table tr:nth-of-type(even) { background-color: #f8f9fa; }
-    .qtd-col { font-weight: 800; text-align: right; color: #2c3e50; font-size: 16px; width: 80px; }
+    
+    .qtd-col { font-weight: 900; text-align: right; font-size: 16px; width: 80px; }
 
-    /* CORES CATEGORIAS */
-    .mini-vela {background: linear-gradient(135deg, #674ea7, #513b87);} 
-    .vela-pote {background: linear-gradient(135deg, #c27ba0, #a05a80);} 
-    .spray {background: linear-gradient(135deg, #134f5c, #0e3a43);} 
-    .escalda {background: linear-gradient(135deg, #38761d, #254e13);}
-    .outros {background: linear-gradient(135deg, #546e7a, #37474f);}
-
-    /* ALERTAS E METRICAS */
-    div[data-testid="metric-container"] {
-        background-color: white; border-radius: 8px; 
-        padding: 15px; border: 1px solid #eee; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    /* CORES */
+    .mini-vela {background-color: #674ea7;} 
+    .vela-pote {background-color: #c27ba0;} 
+    .spray {background-color: #134f5c;} 
+    .escalda {background-color: #38761d;}
+    .outros {background-color: #546e7a;}
+    
+    .versao-check {
+        background-color: #d1e7dd; color: #0f5132; 
+        padding: 10px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÕES CORE ---
+# --- 3. FUNÇÕES DE PROCESSAMENTO ---
 
 def limpar_float(valor):
     if pd.isna(valor): return 0.0
     s = str(valor).replace("R$", "").replace(" ", "")
-    if "," in s and "." in s: s = s.replace(".", "").replace(",", ".") # 1.000,00
-    elif "," in s: s = s.replace(",", ".") # 1000,00
+    if "," in s and "." in s: s = s.replace(".", "").replace(",", ".") 
+    elif "," in s: s = s.replace(",", ".")
     try: return float(s)
     except: return 0.0
 
@@ -91,17 +87,17 @@ def limpar_aroma(texto):
     for p in padroes: texto = re.sub(p, "", texto, flags=re.IGNORECASE)
     return texto.strip().replace("  ", " ") or "Padrão / Sortido"
 
-def processar_tudo(df, dias_limite):
+def processar(df, dias_limite):
     producao = {}
     urgentes = []
     insumos = {"Cera (Kg)": 0, "Essência (L)": 0}
-    finan = {"fat": 0.0, "pedidos": 0, "ticket": 0.0}
+    finan = {"fat": 0.0, "pedidos": 0}
     hoje = datetime.now()
     
-    # Mapeamento
+    # Busca Colunas
     col_sku = encontrar_coluna(df, ["SKU", "REFERÊNCIA"])
     col_qtd = encontrar_coluna(df, ["QUANTIDADE", "QTD"])
-    col_nome = encontrar_coluna(df, ["NOME", "PRODUTO", "TITULO"])
+    col_nome = encontrar_coluna(df, ["NOME", "PRODUTO"])
     col_var = encontrar_coluna(df, ["VARIAÇÃO", "VARIATION"])
     col_data = encontrar_coluna(df, ["ENVIO", "DATA LIMITE"])
     col_status = encontrar_coluna(df, ["STATUS"])
@@ -109,7 +105,7 @@ def processar_tudo(df, dias_limite):
     col_id = encontrar_coluna(df, ["ID", "ORDER"])
 
     if not col_sku or not col_qtd:
-        return None, None, None, None, "❌ Erro: Colunas SKU/QTD não encontradas."
+        return None, None, None, None, f"ERRO: Colunas não encontradas. Colunas lidas: {list(df.columns)}"
 
     pedidos_unicos = set()
 
@@ -139,7 +135,7 @@ def processar_tudo(df, dias_limite):
         texto = f"{sku} {nome} {var}".upper()
 
         # Classificação
-        classe = "99. OUTROS"
+        classe = "99. DIVERSOS"
         css = "outros"
         vidro = "Outros"
         peso = 0
@@ -160,26 +156,14 @@ def processar_tudo(df, dias_limite):
             vidro = "Pacote Zipper"
         elif "SPRAY" in texto or "CHEIRINHO" in texto:
             css = "spray"
-            if "1L" in texto: 
-                classe = "4. SPRAY 1L"
-                vidro = "PET 1L"
-            elif "500" in texto: 
-                classe = "4. SPRAY 500ML"
-                vidro = "PET 500ml"
-            elif "250" in texto: 
-                classe = "4. SPRAY 250ML"
-                vidro = "PET 250ml"
-            elif "100" in texto: 
-                classe = "4. SPRAY 100ML"
-                vidro = "PET 100ml"
-            elif "60" in texto: 
-                classe = "4. SPRAY 60ML"
-                vidro = "PET 60ml"
-            else: 
-                classe = "4. SPRAY - PADRÃO"
-                vidro = "Frascos Div"
+            if "1L" in texto: classe = "4. SPRAY 1L"; vidro = "PET 1L"
+            elif "500" in texto: classe = "4. SPRAY 500ML"; vidro = "PET 500ml"
+            elif "250" in texto: classe = "4. SPRAY 250ML"; vidro = "PET 250ml"
+            elif "100" in texto: classe = "4. SPRAY 100ML"; vidro = "PET 100ml"
+            elif "60" in texto: classe = "4. SPRAY 60ML"; vidro = "PET 60ml"
+            else: classe = "4. SPRAY - PADRÃO"; vidro = "Frascos Div"
 
-        # Multiplicadores
+        # Mult
         mult = 1
         if re.search(r"20\s?UN", texto): mult = 20
         elif re.search(r"10\s?UN", texto): mult = 10
@@ -197,7 +181,7 @@ def processar_tudo(df, dias_limite):
         insumos["Cera (Kg)"] += (qtd_tot * peso) / 1000
         if peso > 0: insumos["Essência (L)"] += (qtd_tot * peso * 0.1) / 1000
 
-        # Adição Itens
+        # Adição
         itens = []
         if "V100-CFB" in sku or ("V100" in sku and "CERJ/FLOR/BRISA" in var.upper()):
             itens = [("Cereja & Avelã", qtd), ("Flor de Cerejeira", qtd), ("Brisa do Mar", qtd)]
@@ -217,49 +201,48 @@ def processar_tudo(df, dias_limite):
                    urgentes.append({"Data": data_envio.strftime("%d/%m"), "Item": f"{classe} - {item}", "Qtd": q})
 
     finan["pedidos"] = len(pedidos_unicos)
-    if finan["pedidos"] > 0: finan["ticket"] = finan["fat"] / finan["pedidos"]
-    
     return producao, urgentes, insumos, finan, None
 
-# --- SIDEBAR ---
+# --- 4. INTERFACE ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823652.png", width=50)
-    st.title("7 Aromas v13.0")
+    st.title("7 Aromas ERP")
     st.write("---")
-    prazo = st.radio("Filtro de Prazo:", ("TUDO", "URGENTE (24h)", "3 DIAS"), index=0)
+    prazo = st.radio("Filtro Prazo:", ("TUDO", "URGENTE", "3 DIAS"), index=0)
     dias = 1 if "URGENTE" in prazo else (3 if "3 DIAS" in prazo else 9999)
-    st.info("💡 Para forçar atualização: Clique nos '...' no canto superior direito > 'Clear Cache' > 'Rerun'.")
+    st.warning("⚠️ Se o site não atualizar, clique nos 3 pontos lá em cima -> Clear Cache -> Rerun.")
 
-# --- APP ---
+# --- CORPO ---
+st.markdown('<div class="versao-check">✅ VERSÃO 14.0 ATIVA - COM GRÁFICOS E GESTÃO</div>', unsafe_allow_html=True)
 st.markdown('<div class="no-print">', unsafe_allow_html=True)
-st.title("🏭 ERP 7 Aromas - v13.0")
-st.write("Arraste o arquivo `.xlsx` ou `.csv` da Shopee.")
-f = st.file_uploader("", type=['xlsx', 'csv'])
+st.title("🏭 Central de Produção e Gestão")
+f = st.file_uploader("Arraste o arquivo Shopee (.xlsx ou .csv)", type=['xlsx', 'csv'])
 st.markdown('</div>', unsafe_allow_html=True)
 
 if f:
     try:
         if f.name.endswith('.csv'):
-            try: df = pd.read_csv(f, sep=';')
+            try: df = pd.read_csv(f, sep=';', encoding='utf-8')
             except: 
                 f.seek(0)
-                df = pd.read_csv(f, sep=',')
+                try: df = pd.read_csv(f, sep=',')
+                except: df = pd.read_csv(f, sep=',', encoding='latin1')
         else:
             df = pd.read_excel(f)
             
-        prod, urg, ins, fin, err = processar_tudo(df, dias)
+        prod, urg, ins, fin, err = processar(df, dias)
 
         if err: st.error(err)
         else:
-            # ABAS
+            # === ABAS DO SISTEMA ===
             t1, t2, t3 = st.tabs(["🏭 PRODUÇÃO", "💰 FINANCEIRO", "📦 INSUMOS"])
 
             with t1:
                 st.markdown('<div class="no-print">', unsafe_allow_html=True)
                 st.write("---")
                 cats = sorted(prod.keys())
-                vis = st.radio("Categoria:", ["TODAS"] + cats, horizontal=True)
-                if urg: st.error(f"🔥 {len(urg)} ITENS URGENTES")
+                vis = st.radio("Visualizar:", ["TODAS"] + cats, horizontal=True)
+                if urg: st.error(f"🔥 {len(urg)} PEDIDOS URGENTES")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 cols = st.columns(2) if vis == "TODAS" else st.columns(1)
@@ -277,26 +260,26 @@ if f:
                     with cols[i%len(cols)]: st.markdown(html, unsafe_allow_html=True)
 
             with t2:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Faturamento", f"R$ {fin['fat']:,.2f}")
-                c2.metric("Pedidos", f"{fin['pedidos']}")
-                c3.metric("Ticket Médio", f"R$ {fin['ticket']:,.2f}")
+                c1, c2 = st.columns(2)
+                c1.metric("Faturamento Total", f"R$ {fin['fat']:,.2f}")
+                c2.metric("Total Pedidos", f"{fin['pedidos']}")
                 
-                # Gráfico
-                data_chart = [{"Produto": k, "Qtd": v, "Cat": c} for c, d in prod.items() for k, v in d['itens'].items()]
+                # GRÁFICO
+                st.write("---")
+                data_chart = [{"Produto": k, "Qtd": v, "Categoria": c} for c, d in prod.items() for k, v in d['itens'].items()]
                 if data_chart:
                     fig = px.bar(pd.DataFrame(data_chart).sort_values("Qtd", ascending=False).head(10), 
-                                 x="Qtd", y="Produto", color="Cat", orientation='h', title="Top 10 Produtos")
+                                 x="Qtd", y="Produto", color="Categoria", orientation='h', title="Top 10 Mais Vendidos")
                     st.plotly_chart(fig, use_container_width=True)
 
             with t3:
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.subheader("🏺 Embalagens")
+                    st.subheader("🏺 Embalagens Necessárias")
                     for k, v in ins.items(): 
                         if "Cera" not in k and "Essência" not in k: st.info(f"**{k}:** {int(v)}")
                 with c2:
-                    st.subheader("⚖️ Matéria Prima")
+                    st.subheader("⚖️ Matéria Prima Estimada")
                     st.warning(f"Cera: {ins['Cera (Kg)']:.2f} Kg")
                     st.warning(f"Essência: {ins['Essência (L)']:.2f} L")
 
