@@ -9,89 +9,103 @@ st.set_page_config(
     page_title="7 Aromas - Central de Produção",
     page_icon="🕯️",
     layout="wide",
-    initial_sidebar_state="collapsed" # Barra lateral começa fechada para dar foco
+    initial_sidebar_state="collapsed"
 )
 
-# --- CSS AVANÇADO (VISUAL E IMPRESSÃO) ---
+# --- CSS PRO (Visual e Impressão) ---
 st.markdown("""
 <style>
-    /* Fonte Geral */
     body {font-family: 'Segoe UI', sans-serif;}
     
-    /* Esconder elementos na impressão */
+    /* ESCONDER NA IMPRESSÃO */
     @media print {
-        [data-testid="stSidebar"] {display: none !important;}
-        .stAppHeader {display: none !important;}
-        .stFileUploader {display: none !important;}
-        .no-print {display: none !important;} /* Classe mágica para esconder botões */
-        .block-container {padding: 0 !important; margin: 0 !important;}
-        #root {margin-top: 0 !important;}
-        .css-1544g2n {padding-top: 0 !important;}
+        [data-testid="stSidebar"], .stAppHeader, .stFileUploader, .no-print, header, footer {
+            display: none !important;
+        }
+        .block-container {
+            padding: 0 !important; margin: 0 !important;
+        }
+        .card-container {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            box-shadow: none !important;
+            border: 1px solid #000 !important;
+        }
     }
 
-    /* Cartões de Produção */
+    /* ESTILO DOS CARTÕES */
     .card-container {
-        page-break-inside: avoid;
         margin-bottom: 25px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         border-radius: 8px;
         border: 1px solid #e0e0e0;
+        background: white;
     }
     .card-header {
-        color: white; 
+        color: white !important; 
         padding: 15px; 
         text-align: center; 
         font-weight: 800; 
         font-size: 20px;
         border-radius: 8px 8px 0 0;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: 1px;
+        -webkit-print-color-adjust: exact; /* Força cor na impressão */
+        print-color-adjust: exact;
     }
     .card-body {
         padding: 0px;
-        background-color: white;
         border-radius: 0 0 8px 8px;
     }
     
-    /* Tabela */
+    /* TABELA */
     .styled-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 15px;
+        font-size: 14px;
     }
     .styled-table th, .styled-table td {
-        padding: 12px 15px;
+        padding: 10px 15px;
         text-align: left;
         border-bottom: 1px solid #f0f0f0;
+        color: #000;
     }
-    .styled-table tr:nth-of-type(even) { background-color: #fcfcfc; }
-    .styled-table tr:last-of-type td { border-bottom: none; }
+    .styled-table tr:nth-of-type(even) { background-color: #f9f9f9; }
     
-    /* Coluna de Quantidade Destaque */
     .qtd-col {
         font-weight: 900;
         text-align: right;
-        color: #333;
+        color: #000;
         font-size: 18px;
         width: 80px;
     }
 
-    /* Cores das Categorias */
-    .mini-vela {background-color: #674ea7; border-bottom: 3px solid #4a357d;}
-    .vela-pote {background-color: #c27ba0; border-bottom: 3px solid #a05a80;}
-    .spray {background-color: #134f5c; border-bottom: 3px solid #0d3842;}
-    .escalda {background-color: #38761d; border-bottom: 3px solid #265213;}
-    .outros {background-color: #607d8b; border-bottom: 3px solid #455a64;}
+    /* CORES */
+    .mini-vela {background-color: #674ea7;} 
+    .vela-pote {background-color: #c27ba0;} 
+    .spray {background-color: #134f5c;} 
+    .escalda {background-color: #38761d;}
+    .outros {background-color: #555555;}
+    
+    /* ALERTAS */
+    .alert-box {
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        font-weight: bold;
+    }
+    .alert-red { background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+    .alert-blue { background-color: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
 
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÕES DE LÓGICA (BACKEND) ---
+# --- FUNÇÕES (LÓGICA) ---
 
 def limpar_aroma(texto):
-    if not isinstance(texto, str): return "Padrão / Sortido"
-    texto = texto.replace(" e ", " & ").replace(" E ", " & ")
-    # Regex para limpar medidas e lixo visual
+    if pd.isna(texto) or texto == "": return "Padrão / Sortido"
+    texto = str(texto).replace(" e ", " & ").replace(" E ", " & ")
+    
     padroes = [
         r"\(1 unidade\)", r"\(1 un\)", r"\(1\)",
         r"\b\d+\s?(ml|L|Litro|un|unidades|kits|kit)\b",
@@ -104,49 +118,66 @@ def limpar_aroma(texto):
     if texto.endswith(")"): texto = texto[:-1]
     return texto.strip() or "Padrão / Sortido"
 
+def encontrar_coluna(df, palavras_chave):
+    """ Tenta encontrar uma coluna que contenha alguma das palavras chave """
+    cols_upper = [str(c).upper().strip() for c in df.columns]
+    for chave in palavras_chave:
+        for i, col in enumerate(cols_upper):
+            if chave in col:
+                return df.columns[i] # Retorna o nome original da coluna
+    return None
+
 def processar_pedidos(df, dias_limite):
     producao = {}
     lista_critica = []
     resumo_estoque = {}
     hoje = datetime.now()
     
-    # Normalizar cabeçalhos
-    df.columns = [str(c).strip().upper() for c in df.columns]
-    
-    # Busca inteligente de colunas
-    col_sku = next((c for c in df.columns if 'SKU' in c), None)
-    col_var = next((c for c in df.columns if 'VARIAÇÃO' in c or 'VARIATION' in c), None)
-    col_nome = next((c for c in df.columns if 'NOME DO PRODUTO' in c or 'PRODUCT NAME' in c), None)
-    col_qtd = next((c for c in df.columns if 'QUANTIDADE' in c or 'QUANTITY' in c), None)
-    col_data = next((c for c in df.columns if 'ENVIO' in c or 'SHIP' in c), None)
-    col_status = next((c for c in df.columns if 'STATUS' in c), None)
+    # --- 1. DETECÇÃO INTELIGENTE DE COLUNAS ---
+    col_sku = encontrar_coluna(df, ["SKU", "REFERÊNCIA", "REFERENCE"])
+    col_qtd = encontrar_coluna(df, ["QUANTIDADE", "QUANTITY", "QTD"])
+    col_nome = encontrar_coluna(df, ["NOME DO PRODUTO", "PRODUCT NAME", "PRODUTO"])
+    col_var = encontrar_coluna(df, ["VARIAÇÃO", "VARIATION", "OPÇÃO"])
+    col_data = encontrar_coluna(df, ["ENVIO", "SHIP", "DATA LIMITE"])
+    col_status = encontrar_coluna(df, ["STATUS", "SITUAÇÃO"])
 
+    # Se não achar SKU ou QTD, para tudo.
     if not col_sku or not col_qtd:
-        return None, None, None, "Erro: Colunas SKU ou Quantidade não encontradas."
+        cols_encontradas = f"Colunas no arquivo: {list(df.columns)}"
+        return None, None, None, f"ERRO: Não encontrei as colunas SKU ou QUANTIDADE. \n{cols_encontradas}"
 
+    # --- 2. LOOP DE PROCESSAMENTO ---
     for index, row in df.iterrows():
+        # Ignorar Cancelados
         if col_status and str(row[col_status]).upper() == "CANCELADO": continue
         
         # Filtro Data
         data_envio = None
         if col_data and pd.notnull(row[col_data]):
             try:
-                data_envio = pd.to_datetime(row[col_data], dayfirst=True)
-                if (data_envio - hoje).days > dias_limite: continue
+                data_envio = pd.to_datetime(row[col_data], dayfirst=True, errors='coerce')
+                if pd.notnull(data_envio) and (data_envio - hoje).days > dias_limite: continue
             except: pass
         
-        sku = str(row[col_sku]).upper()
-        nome = str(row[col_nome]).upper() if col_nome else ""
-        var = str(row[col_var]) if col_var else ""
-        try: qtd_pedido = float(str(row[col_qtd]).replace(",", "."))
-        except: qtd_pedido = 0.0
+        # Extrair dados com segurança
+        sku = str(row[col_sku]).upper() if pd.notnull(row[col_sku]) else ""
+        nome = str(row[col_nome]).upper() if col_nome and pd.notnull(row[col_nome]) else ""
+        var = str(row[col_var]) if col_var and pd.notnull(row[col_var]) else ""
         
+        try: 
+            qtd_txt = str(row[col_qtd]).replace(",", ".")
+            qtd_pedido = float(qtd_txt)
+        except: 
+            qtd_pedido = 0.0
+
+        if qtd_pedido <= 0: continue # Pula se qtd for zero
+
         texto_total = f"{sku} {nome} {var}".upper()
 
         # CLASSIFICAÇÃO
-        classe = "99. DIVERSOS"
+        classe = "99. NÃO IDENTIFICADO" # Padrão para não perder nada
         css_class = "outros"
-        tipo_estoque = "Outros"
+        tipo_estoque = "Outros Itens"
         
         if "MV" in sku or "MINI VELA" in nome:
             classe = "1. MINI VELAS (30G)"
@@ -197,7 +228,7 @@ def processar_pedidos(df, dias_limite):
         
         qtd_total = qtd_pedido * mult
 
-        # REGRAS E ADIÇÃO
+        # REGRAS DE ADIÇÃO
         itens_add = []
         if "V100-CFB" in sku or ("V100" in sku and "CERJ/FLOR/BRISA" in var.upper()):
             itens_add = [("Cereja & Avelã", qtd_pedido), ("Flor de Cerejeira", qtd_pedido), ("Brisa do Mar", qtd_pedido)]
@@ -219,135 +250,120 @@ def processar_pedidos(df, dias_limite):
             if aroma not in producao[classe]['itens']: producao[classe]['itens'][aroma] = 0
             producao[classe]['itens'][aroma] += qtd
             
-            if data_envio and (data_envio - hoje).days <= 1:
-               lista_critica.append({"Data": data_envio.strftime("%d/%m"), "Item": f"{classe} - {aroma}", "Qtd": qtd})
+            # Checa urgência (se tiver data)
+            if data_envio and pd.notnull(data_envio):
+                dias = (data_envio - hoje).days
+                if dias <= 1:
+                   lista_critica.append({"Data": data_envio.strftime("%d/%m"), "Item": f"{classe} - {aroma}", "Qtd": qtd})
 
     return producao, lista_critica, resumo_estoque, None
 
-# --- SIDEBAR FIXA (MENU) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823652.png", width=50)
     st.title("7 Aromas")
     st.write("---")
     
-    # Filtro de Prazo
-    st.subheader("⏳ Prazo de Envio")
-    filtro_prazo = st.radio(
-        "Filtrar data:",
-        ("TUDO", "URGENTE (24h)", "3 DIAS", "SEMANA"),
-        index=0,
-        label_visibility="collapsed"
-    )
-    
+    st.subheader("📅 Filtro de Data")
+    filtro_prazo = st.radio("Mostrar:", ("TUDO", "URGENTE (24h)", "3 DIAS", "SEMANA"))
     st.write("---")
-    st.info("Para imprimir separado: Selecione a categoria nos botões acima da lista e tecle Ctrl+P.")
+    st.info("Para imprimir: Selecione a categoria acima da lista e tecle Ctrl+P.")
 
-# --- LÓGICA FILTRO PRAZO ---
+# Lógica do filtro
 dias_limite = 9999
 if "URGENTE" in filtro_prazo: dias_limite = 1
 elif "3 DIAS" in filtro_prazo: dias_limite = 3
 elif "SEMANA" in filtro_prazo: dias_limite = 7
 
 # --- CORPO PRINCIPAL ---
-
-# Título e Upload (Classe no-print para sumir na impressão)
 st.markdown('<div class="no-print">', unsafe_allow_html=True)
 st.title("🏭 Central de Produção")
-arquivo = st.file_uploader("📂 Arraste o arquivo Shopee aqui", type=['xlsx', 'csv'])
+st.write("Arraste o arquivo `.xlsx` ou `.csv` da Shopee.")
+arquivo = st.file_uploader("", type=['xlsx', 'csv'])
 st.markdown('</div>', unsafe_allow_html=True)
 
 if arquivo:
     try:
-        # Leitura
+        # Tenta ler Excel ou CSV com varias codificações
         if arquivo.name.endswith('.csv'):
             try: df = pd.read_csv(arquivo, sep=';', encoding='utf-8')
             except: 
                 arquivo.seek(0)
-                df = pd.read_csv(arquivo, sep=',')
+                try: df = pd.read_csv(arquivo, sep=',')
+                except: df = pd.read_csv(arquivo, sep=',', encoding='latin1')
         else:
             df = pd.read_excel(arquivo)
         
+        # Processa
         producao, urgentes, estoque, erro = processar_pedidos(df, dias_limite)
 
         if erro:
             st.error(erro)
+            st.write("Dica: Verifique se o arquivo não está vazio ou corrompido.")
+            with st.expander("Ver dados brutos (Debug)"):
+                st.dataframe(df.head())
+        
+        elif not producao:
+            st.warning("O arquivo foi lido, mas nenhum pedido se encaixou nos filtros.")
+            
         else:
-            # === ÁREA DE BOTÕES DE FILTRO (VISÍVEL SÓ NA TELA) ===
+            # === BOTÕES DE CATEGORIA ===
             st.markdown('<div class="no-print">', unsafe_allow_html=True)
             st.write("---")
-            st.subheader("🔍 O que você quer visualizar/imprimir?")
+            cats_disp = sorted(producao.keys())
+            opcoes = ["VISÃO GERAL"] + cats_disp
             
-            # Criar lista de categorias disponíveis
-            cats_disponiveis = sorted(producao.keys())
-            opcoes_filtro = ["VISÃO GERAL (TODOS)"] + cats_disponiveis
-            
-            # Botões de Rádio Horizontais (Funcionam como abas)
-            filtro_categoria = st.radio(
-                "Selecione uma categoria para isolar:",
-                opcoes_filtro,
-                horizontal=True,
-                label_visibility="collapsed"
-            )
-            st.markdown('</div>', unsafe_allow_html=True) # Fim do no-print
+            # Estilo de abas
+            escolha = st.radio("Modo de Visualização:", opcoes, horizontal=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            # === LÓGICA DE EXIBIÇÃO ===
-            if filtro_categoria == "VISÃO GERAL (TODOS)":
-                categorias_para_mostrar = cats_disponiveis
-                
-                # Resumo de Estoque e Urgencia só aparece na visão geral
+            # === VISÃO GERAL ===
+            if escolha == "VISÃO GERAL":
                 c1, c2 = st.columns(2)
-                c1.metric("Total de Peças", f"{int(sum([sum(c['itens'].values()) for c in producao.values()]))}")
+                total = sum([sum(c['itens'].values()) for c in producao.values()])
+                c1.metric("Total Peças", f"{int(total)}")
                 c2.metric("Pedidos Urgentes", f"{len(urgentes)}")
-                
+
                 if urgentes:
-                    st.error(f"🔥 {len(urgentes)} ITENS URGENTES!")
-                    with st.expander("Ver lista"): st.dataframe(pd.DataFrame(urgentes))
+                    st.markdown(f'<div class="alert-box alert-red">🔥 {len(urgentes)} ITENS PARA ENVIO IMEDIATO!</div>', unsafe_allow_html=True)
+                    with st.expander("Ver Lista de Urgência"):
+                        st.dataframe(pd.DataFrame(urgentes))
                 
-                # Picking List
-                st.markdown("### 📦 Separação de Material")
-                st.info(" ".join([f"**{k}:** {int(v)}  | " for k, v in estoque.items()]))
-                
-            else:
-                # Se selecionou uma categoria específica
-                categorias_para_mostrar = [filtro_categoria]
-                st.success(f"👁️ Visualizando apenas: **{filtro_categoria}**. Pressione Ctrl+P para imprimir.")
+                st.markdown("### 📦 Picking List (Estoque)")
+                st.markdown('<div class="alert-box alert-blue">', unsafe_allow_html=True)
+                cols_pk = st.columns(3)
+                for i, (k, v) in enumerate(estoque.items()):
+                    cols_pk[i%3].write(f"**{k}:** {int(v)}")
+                st.markdown('</div>', unsafe_allow_html=True)
 
+                cats_show = cats_disp
+            else:
+                cats_show = [escolha]
+                st.success(f"Filtrando: {escolha}. Pressione Ctrl+P para imprimir.")
+
+            # === CARTÕES ===
             st.write("---")
-
-            # === GERAÇÃO DOS CARTÕES ===
-            # Se for visão geral, usa 2 colunas. Se for individual, usa 1 coluna centralizada.
-            if len(categorias_para_mostrar) > 1:
-                cols = st.columns(2)
-            else:
-                cols = st.columns(1)
-
-            for i, cat_nome in enumerate(categorias_para_mostrar):
-                dados = producao[cat_nome]
-                itens = dados['itens']
-                style = dados['css']
-                
-                # Tabela HTML
+            cols = st.columns(2) if len(cats_show) > 1 else st.columns(1)
+            
+            for i, cat in enumerate(cats_show):
+                dados = producao[cat]
+                # HTML Tabela
                 rows = ""
-                for item, qtd in sorted(itens.items()):
-                    val = int(qtd) if qtd % 1 == 0 else f"{qtd:.1f}"
+                for item, qtd in sorted(dados['itens'].items()):
+                    v = int(qtd) if qtd % 1 == 0 else f"{qtd:.1f}"
                     if qtd > 0:
-                        rows += f"<tr><td>{item}</td><td class='qtd-col'>{val}</td></tr>"
+                        rows += f"<tr><td>{item}</td><td class='qtd-col'>{v}</td></tr>"
                 
-                html_card = f"""
+                html = f"""
                 <div class="card-container">
-                    <div class="card-header {style}">{cat_nome}</div>
+                    <div class="card-header {dados['css']}">{cat}</div>
                     <div class="card-body">
                         <table class="styled-table">{rows}</table>
                     </div>
                 </div>
                 """
-                
-                # Renderiza na coluna correta
                 with cols[i % len(cols)]:
-                    st.markdown(html_card, unsafe_allow_html=True)
+                    st.markdown(html, unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"Erro: {e}")
-
-# Rodapé
-st.markdown('<div class="no-print" style="text-align:center; margin-top:50px; color:#aaa;">Sistema 7 Aromas v10</div>', unsafe_allow_html=True)
+        st.error(f"Erro Crítico: {e}")
